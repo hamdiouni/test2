@@ -11,7 +11,7 @@ services:
       POSTGRES_PASSWORD: sla_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./infra/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
     healthcheck:
@@ -21,60 +21,23 @@ services:
       retries: 5
     networks:
       - sla_network
-    restart: unless-stopped
-
-  # InfluxDB for time-series data
-  influxdb:
-    image: influxdb:2.7-alpine
-    container_name: sla_influxdb
-    environment:
-      DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: adminpassword
-      DOCKER_INFLUXDB_INIT_ORG: sla-org
-      DOCKER_INFLUXDB_INIT_BUCKET: sla-metrics
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: sla-admin-token
-    volumes:
-      - influxdb_data:/var/lib/influxdb2
-    ports:
-      - "8086:8086"
-    networks:
-      - sla_network
-    restart: unless-stopped
 
   # FastAPI Backend
   backend:
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: Dockerfile
     container_name: sla_backend
     environment:
       DATABASE_URL: postgresql://sla_user:sla_password@postgres:5432/sla_prediction
-      INFLUXDB_URL: http://influxdb:8086
-      INFLUXDB_TOKEN: sla-admin-token
-      INFLUXDB_ORG: sla-org
-      INFLUXDB_BUCKET: sla-metrics
       PYTHONPATH: /app
-      # Email configuration
-      SMTP_SERVER: smtp.gmail.com
-      SMTP_PORT: 587
-      SMTP_USERNAME: ${SMTP_USERNAME:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      FROM_EMAIL: ${FROM_EMAIL:-}
-      # Telegram configuration
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      # Default alert recipients
-      DEFAULT_ALERT_EMAIL: ${DEFAULT_ALERT_EMAIL:-}
-      DEFAULT_TELEGRAM_CHAT_ID: ${DEFAULT_TELEGRAM_CHAT_ID:-}
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
-      influxdb:
-        condition: service_started
     volumes:
-      - ./backend:/app
+      - ../backend:/app
       - model_data:/app/models
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -88,20 +51,20 @@ services:
   # Frontend (React)
   frontend:
     build:
-      context: .
+      context: ../
       dockerfile: infra/Dockerfile.frontend
     container_name: sla_frontend
     ports:
       - "3000:3000"
     environment:
-      VITE_API_URL: http://localhost:8000
+      REACT_APP_API_URL: http://localhost:8000
     depends_on:
       - backend
     networks:
       - sla_network
     restart: unless-stopped
 
-  # Redis for caching and session management
+  # Redis for caching (optional)
   redis:
     image: redis:7-alpine
     container_name: sla_redis
@@ -109,7 +72,6 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --requirepass redispassword
     networks:
       - sla_network
     restart: unless-stopped
@@ -122,8 +84,8 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./infra/nginx.conf:/etc/nginx/nginx.conf
-      - ./infra/ssl:/etc/nginx/ssl
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
     depends_on:
       - frontend
       - backend
@@ -131,38 +93,11 @@ services:
       - sla_network
     restart: unless-stopped
 
-  # Grafana for advanced monitoring (optional)
-  grafana:
-    image: grafana/grafana:latest
-    container_name: sla_grafana
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
-    ports:
-      - "3001:3000"
-    volumes:
-      - grafana_data:/var/lib/grafana
-    depends_on:
-      - influxdb
-    networks:
-      - sla_network
-    restart: unless-stopped
-
 volumes:
   postgres_data:
-    driver: local
-  influxdb_data:
-    driver: local
   redis_data:
-    driver: local
   model_data:
-    driver: local
-  grafana_data:
-    driver: local
 
 networks:
   sla_network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
