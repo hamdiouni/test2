@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: sla_postgres
+    environment:
+      POSTGRES_DB: sla_prediction
+      POSTGRES_USER: sla_user
+      POSTGRES_PASSWORD: sla_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sla_user -d sla_prediction"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sla_network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: sla_backend
+    environment:
+      DATABASE_URL: postgresql://sla_user:sla_password@postgres:5432/sla_prediction
+      PYTHONPATH: /app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../backend:/app
+      - model_data:/app/models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - sla_network
+    restart: unless-stopped
+
+  # Frontend (React)
+  frontend:
+    build:
+      context: ../
+      dockerfile: infra/Dockerfile.frontend
+    container_name: sla_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_API_URL: http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - sla_network
+    restart: unless-stopped
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: sla_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - sla_network
+    restart: unless-stopped
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: sla_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - sla_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  model_data:
+
+networks:
+  sla_network:
+    driver: bridge
