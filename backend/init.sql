@@ -1,0 +1,3 @@
+-- Placeholder for database initialization script
+-- This file was created during refactoring as the original init.sql was removed.
+-- If database initialization is required, please populate this file with the necessary SQL commands.
