@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
     
     # Initialize ML predictor
     try:
-        ml_predictor = MLPredictor()
+        ml_predictor = MLPredictor(model_dir="/app/models")
         ml_predictor.load_models()
         logger.info("ML models loaded successfully")
     except Exception as e:

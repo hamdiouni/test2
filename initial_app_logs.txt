@@ -1,0 +1,3 @@
+Viewing logs...
+docker-compose logs -f
+Attaching to
